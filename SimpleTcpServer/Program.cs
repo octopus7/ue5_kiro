@@ -1,9 +1,10 @@
 ﻿using SimpleTcpServer;
 
 Console.WriteLine("Simple TCP Server for Character Movement");
+Console.WriteLine("Starting server on port 8085...");
 Console.WriteLine("Press 'q' to quit");
 
-var server = new TcpServer(8080);
+var server = new TcpServer(8085);
 var serverTask = Task.Run(() => server.StartAsync());
 
 while (true)

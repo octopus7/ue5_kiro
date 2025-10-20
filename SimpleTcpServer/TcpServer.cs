@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Net;
+using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Numerics;
 using System.Text;
@@ -12,19 +13,70 @@ namespace SimpleTcpServer
         private readonly ConcurrentDictionary<string, TcpClient> _clients = new();
         private readonly ConcurrentDictionary<string, Character> _characters = new();
         private readonly Timer _updateTimer;
+        private readonly IPAddress _serverIp;
         private bool _isRunning;
 
         public TcpServer(int port)
         {
-            _listener = new TcpListener(IPAddress.Any, port);
+            _serverIp = GetLocalIPAddress();
+            _listener = new TcpListener(_serverIp, port);
             _updateTimer = new Timer(UpdateCharacters, null, TimeSpan.Zero, TimeSpan.FromMilliseconds(16)); // ~60 FPS
+        }
+
+        private static IPAddress GetLocalIPAddress()
+        {
+            try
+            {
+                // 네트워크 인터페이스를 통해 활성화된 IP 주소 찾기
+                foreach (NetworkInterface ni in NetworkInterface.GetAllNetworkInterfaces())
+                {
+                    if (ni.OperationalStatus == OperationalStatus.Up && 
+                        ni.NetworkInterfaceType != NetworkInterfaceType.Loopback)
+                    {
+                        foreach (UnicastIPAddressInformation ip in ni.GetIPProperties().UnicastAddresses)
+                        {
+                            if (ip.Address.AddressFamily == AddressFamily.InterNetwork)
+                            {
+                                return ip.Address;
+                            }
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error getting local IP address: {ex.Message}");
+            }
+
+            // 대체 방법: DNS를 통해 로컬 IP 주소 얻기
+            try
+            {
+                using (Socket socket = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, 0))
+                {
+                    socket.Connect("8.8.8.8", 65530);
+                    IPEndPoint? endPoint = socket.LocalEndPoint as IPEndPoint;
+                    if (endPoint != null)
+                    {
+                        return endPoint.Address;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error getting local IP address (fallback): {ex.Message}");
+            }
+
+            // 최후의 수단으로 localhost 반환
+            return IPAddress.Loopback;
         }
 
         public async Task StartAsync()
         {
             _listener.Start();
             _isRunning = true;
-            Console.WriteLine($"Server started on port {((IPEndPoint)_listener.LocalEndpoint).Port}");
+            var endpoint = (IPEndPoint)_listener.LocalEndpoint;
+            Console.WriteLine($"Server started on {endpoint.Address}:{endpoint.Port}");
+            Console.WriteLine($"Clients can connect to: {_serverIp}:{endpoint.Port}");
 
             while (_isRunning)
             {
