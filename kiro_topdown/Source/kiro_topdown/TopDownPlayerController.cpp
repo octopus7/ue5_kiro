@@ -5,12 +5,14 @@
 #include "Components/DecalComponent.h"
 #include "Materials/Material.h"
 #include "UObject/ConstructorHelpers.h"
+#include "EnhancedInputComponent.h"
+#include "EnhancedInputSubsystems.h"
+#include "InputActionValue.h"
 
 ATopDownPlayerController::ATopDownPlayerController()
 {
 	bShowMouseCursor = true;
 	DefaultMouseCursor = EMouseCursor::Default;
-	bIsMousePressed = false;
 
 	// 데칼 컴포넌트 생성 (목표 지점 표시용)
 	CursorToWorld = CreateDefaultSubobject<UDecalComponent>(TEXT("CursorToWorld"));
@@ -29,36 +31,41 @@ ATopDownPlayerController::ATopDownPlayerController()
 void ATopDownPlayerController::BeginPlay()
 {
 	Super::BeginPlay();
+	
+	// Enhanced Input 서브시스템에 매핑 컨텍스트 추가
+	if (UEnhancedInputLocalPlayerSubsystem* Subsystem = ULocalPlayer::GetSubsystem<UEnhancedInputLocalPlayerSubsystem>(GetLocalPlayer()))
+	{
+		if (DefaultMappingContext)
+		{
+			Subsystem->AddMappingContext(DefaultMappingContext, 0);
+		}
+	}
 }
 
 void ATopDownPlayerController::SetupInputComponent()
 {
 	Super::SetupInputComponent();
 
-	// 마우스 클릭 바인딩
-	InputComponent->BindAction("LeftMouseClick", IE_Pressed, this, &ATopDownPlayerController::OnLeftMouseClick);
-	InputComponent->BindAction("LeftMouseClick", IE_Released, this, &ATopDownPlayerController::OnLeftMouseRelease);
-}
-
-void ATopDownPlayerController::OnLeftMouseClick()
-{
-	bIsMousePressed = true;
-}
-
-void ATopDownPlayerController::OnLeftMouseRelease()
-{
-	if (bIsMousePressed)
+	// Enhanced Input 컴포넌트로 캐스팅
+	if (UEnhancedInputComponent* EnhancedInputComponent = Cast<UEnhancedInputComponent>(InputComponent))
 	{
-		bIsMousePressed = false;
-		
-		FHitResult HitResult;
-		if (GetHitResultUnderCursor(HitResult))
+		// 클릭 액션 바인딩
+		if (ClickAction)
 		{
-			// 플레이어 캐릭터에게 이동 명령
-			if (ATopDownCharacter* TopDownCharacter = Cast<ATopDownCharacter>(GetPawn()))
-			{
-				TopDownCharacter->MoveToLocation(HitResult.Location);
-			}
+			EnhancedInputComponent->BindAction(ClickAction, ETriggerEvent::Completed, this, &ATopDownPlayerController::OnClick);
+		}
+	}
+}
+
+void ATopDownPlayerController::OnClick(const FInputActionValue& Value)
+{
+	FHitResult HitResult;
+	if (GetHitResultUnderCursor(HitResult))
+	{
+		// 플레이어 캐릭터에게 이동 명령
+		if (ATopDownCharacter* TopDownCharacter = Cast<ATopDownCharacter>(GetPawn()))
+		{
+			TopDownCharacter->MoveToLocation(HitResult.Location);
 		}
 	}
 }
