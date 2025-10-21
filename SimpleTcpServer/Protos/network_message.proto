@@ -1,0 +1,38 @@
+syntax = "proto3";
+
+option csharp_namespace = "SimpleTcp.Shared";
+
+package simpletcp;
+
+enum MessageType {
+  MOVE = 0;
+  POSITION = 1;
+  USER_ID_ASSIGNMENT = 2;
+  ALL_USERS_INFO = 3;
+}
+
+message UserInfo {
+  uint32 user_id = 1;
+  string character_id = 2;
+  float current_x = 3;
+  float current_y = 4;
+  float target_x = 5;
+  float target_y = 6;
+  float speed = 7;
+  bool is_moving = 8;
+}
+
+message NetworkMessage {
+  MessageType type = 1;
+  string character_id = 2;
+  uint32 user_id = 3;
+  float start_x = 4;
+  float start_y = 5;
+  float target_x = 6;
+  float target_y = 7;
+  float current_x = 8;
+  float current_y = 9;
+  float speed = 10;
+  bool is_moving = 11;
+  repeated UserInfo all_users = 12;
+}

@@ -1,10 +1,12 @@
 ﻿using System.Buffers.Binary;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.IO;
 using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Numerics;
+using SimpleTcp.Shared;
 
 namespace SimpleTcpServer
 {
@@ -125,7 +127,7 @@ namespace SimpleTcpServer
                     {
                         break;
                     }
-                    var message = Message.Deserialize(payload);
+                    var message = NetworkMessageCodec.Deserialize(payload);
                     if (message == null)
                     {
                         Console.WriteLine($"Failed to deserialize message from {clientId}");
@@ -172,9 +174,9 @@ namespace SimpleTcpServer
             }
         }
 
-        private async Task BroadcastMessageAsync(Message message, string senderId)
+        private async Task BroadcastMessageAsync(NetworkMessage message, string senderId)
         {
-            var payload = Message.Serialize(message);
+            var payload = NetworkMessageCodec.Serialize(message);
             var packet = BuildPacket(payload);
             var tasks = new List<Task>();
             foreach (var kvp in _clients)
@@ -191,12 +193,12 @@ namespace SimpleTcpServer
         {
             try
             {
-                var message = new Message
+                var message = new NetworkMessage
                 {
                     Type = MessageType.UserIdAssignment,
                     UserId = userId
                 };
-                var payload = Message.Serialize(message);
+                var payload = NetworkMessageCodec.Serialize(message);
                 var packet = BuildPacket(payload);
                 await SendRawPacketAsync(client, packet);
             }
@@ -229,12 +231,12 @@ namespace SimpleTcpServer
                         });
                     }
                 }
-                var message = new Message
+                var message = new NetworkMessage
                 {
                     Type = MessageType.AllUsersInfo,
-                    AllUsers = allUsers
                 };
-                var payload = Message.Serialize(message);
+                message.AllUsers.AddRange(allUsers);
+                var payload = NetworkMessageCodec.Serialize(message);
                 var packet = BuildPacket(payload);
                 await SendRawPacketAsync(client, packet);
             }

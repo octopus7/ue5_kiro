@@ -8,6 +8,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Shapes;
 using System.Windows.Threading;
+using SimpleTcp.Shared;
 
 namespace SimpleTcpClient;
 
@@ -109,14 +110,20 @@ public partial class MainWindow : Window
         await _tcpClient.SendMoveCommandAsync(startPos.X, startPos.Y, targetX, targetY);
     }
 
-    private void OnMessageReceived(Message message)
+    private void OnMessageReceived(NetworkMessage message)
     {
         Dispatcher.Invoke(() =>
         {
             if (message.Type == MessageType.UserIdAssignment)
             {
                 // 서버로부터 받은 UserId 설정
-                _myUserId = message.UserId;
+                if (message.UserId > ushort.MaxValue)
+                {
+                    AppendLog($"Received invalid user ID: {message.UserId}");
+                    return;
+                }
+
+                _myUserId = (ushort)message.UserId;
                 AppendLog($"Assigned user ID: {_myUserId}");
                 PlayerIdLabel.Text = _myUserId.ToString();
                 _myCharacter = new ClientCharacter(_myUserId, "");
@@ -126,21 +133,28 @@ public partial class MainWindow : Window
             }
             else if (message.Type == MessageType.AllUsersInfo)
             {
-                // 모든 유저 정보 처리
-                if (message.AllUsers != null)
+                var totalUsers = message.AllUsers.Count;
+                if (totalUsers > 0)
                 {
-                    AppendLog($"Received all users info: {message.AllUsers.Count} users");
-                    foreach (var userInfo in message.AllUsers)
+                    AppendLog($"Received all users info: {totalUsers} users");
+                }
+
+                foreach (var userInfo in message.AllUsers)
+                {
+                    if (userInfo.UserId > ushort.MaxValue)
                     {
-                        if (userInfo.UserId != _myUserId) // 자신이 아닌 경우만
-                        {
-                            CreateOrUpdateOtherCharacter(userInfo);
-                        }
-                        else if (_myCharacter != null)
-                        {
-                            // 자신의 속도 정보 업데이트
-                            _myCharacter.Speed = userInfo.Speed;
-                        }
+                        AppendLog($"Skip user with invalid ID: {userInfo.UserId}");
+                        continue;
+                    }
+
+                    var userId = (ushort)userInfo.UserId;
+                    if (userId != _myUserId)
+                    {
+                        CreateOrUpdateOtherCharacter(userInfo);
+                    }
+                    else if (_myCharacter != null)
+                    {
+                        _myCharacter.Speed = userInfo.Speed;
                     }
                 }
             }
@@ -196,6 +210,14 @@ public partial class MainWindow : Window
 
     private void CreateOrUpdateOtherCharacter(UserInfo userInfo)
     {
+        if (userInfo.UserId > ushort.MaxValue)
+        {
+            AppendLog($"Skip user with invalid ID: {userInfo.UserId}");
+            return;
+        }
+
+        var userId = (ushort)userInfo.UserId;
+
         if (!_otherCharacters.ContainsKey(userInfo.CharacterId))
         {
             var character = new Ellipse
@@ -207,7 +229,7 @@ public partial class MainWindow : Window
             
             var label = new TextBlock
             {
-                Text = userInfo.UserId.ToString(),
+                Text = userId.ToString(),
                 Foreground = Brushes.White,
                 FontSize = 10,
                 FontWeight = FontWeights.Bold,
@@ -215,7 +237,7 @@ public partial class MainWindow : Window
                 VerticalAlignment = VerticalAlignment.Center
             };
             
-            var clientChar = new ClientCharacter(userInfo.UserId, userInfo.CharacterId);
+            var clientChar = new ClientCharacter(userId, userInfo.CharacterId);
             clientChar.Position = new Vector2(userInfo.CurrentX, userInfo.CurrentY);
             clientChar.TargetPosition = new Vector2(userInfo.TargetX, userInfo.TargetY);
             clientChar.Speed = userInfo.Speed;
