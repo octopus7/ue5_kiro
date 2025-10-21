@@ -101,10 +101,11 @@ namespace SimpleTcpServer
                     
                     Console.WriteLine($"Client connected: {clientId} (UserId: {userId})");
                     
-                    // 클라이언트에게 UserId 전송
+                    // 클라이언트에게 UserId 전송 및 모든 유저 정보 전송
                     _ = Task.Run(async () =>
                     {
                         await SendUserIdAssignmentAsync(tcpClient, userId);
+                        await SendAllUsersInfoAsync(tcpClient);
                         await HandleClientAsync(clientId, tcpClient);
                     });
                 }
@@ -141,9 +142,12 @@ namespace SimpleTcpServer
 
                             Console.WriteLine($"Character {userId} moving from ({startPos.X}, {startPos.Y}) to ({targetPos.X}, {targetPos.Y})");
 
-                            // 메시지에 UserId 설정
+                            // 메시지에 UserId와 속도 설정
                             message.UserId = userId;
                             message.CharacterId = clientId;
+                            message.Speed = character.Speed;
+                            message.CurrentX = character.Position.X;
+                            message.CurrentY = character.Position.Y;
 
                             // 다른 클라이언트들에게 이동 정보 전달
                             await BroadcastMessageAsync(message, clientId);
@@ -218,6 +222,48 @@ namespace SimpleTcpServer
             catch (Exception ex)
             {
                 Console.WriteLine($"Error sending UserId assignment: {ex.Message}");
+            }
+        }
+
+        private async Task SendAllUsersInfoAsync(TcpClient client)
+        {
+            try
+            {
+                var allUsers = new List<UserInfo>();
+                
+                foreach (var kvp in _characters)
+                {
+                    var character = kvp.Value;
+                    if (_clientUserIds.TryGetValue(kvp.Key, out var userId))
+                    {
+                        allUsers.Add(new UserInfo
+                        {
+                            UserId = userId,
+                            CharacterId = kvp.Key,
+                            CurrentX = character.Position.X,
+                            CurrentY = character.Position.Y,
+                            TargetX = character.TargetPosition.X,
+                            TargetY = character.TargetPosition.Y,
+                            Speed = character.Speed,
+                            IsMoving = character.IsMoving
+                        });
+                    }
+                }
+
+                var message = new Message
+                {
+                    Type = MessageType.AllUsersInfo,
+                    AllUsers = allUsers
+                };
+                
+                var messageJson = Message.Serialize(message);
+                var data = Encoding.UTF8.GetBytes(messageJson);
+                
+                await client.GetStream().WriteAsync(data, 0, data.Length);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error sending all users info: {ex.Message}");
             }
         }
 

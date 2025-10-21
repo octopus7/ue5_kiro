@@ -21,7 +21,9 @@ namespace SimpleTcpServer
         public float TargetY { get; set; }
         public float CurrentX { get; set; }
         public float CurrentY { get; set; }
+        public float Speed { get; set; } = 100.0f; // 이동 속도
         public bool IsMoving { get; set; }
+        public List<UserInfo>? AllUsers { get; set; } // 모든 유저 정보
 
         public static string Serialize(Message message)
         {
@@ -39,5 +41,17 @@ namespace SimpleTcpServer
                 return null;
             }
         }
+    }
+
+    public class UserInfo
+    {
+        public ushort UserId { get; set; }
+        public string CharacterId { get; set; } = string.Empty;
+        public float CurrentX { get; set; }
+        public float CurrentY { get; set; }
+        public float TargetX { get; set; }
+        public float TargetY { get; set; }
+        public float Speed { get; set; }
+        public bool IsMoving { get; set; }
     }
 }
