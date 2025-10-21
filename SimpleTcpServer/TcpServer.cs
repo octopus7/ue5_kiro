@@ -1,10 +1,11 @@
+﻿using System.Buffers.Binary;
 using System.Collections.Concurrent;
+using System.IO;
 using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Numerics;
 using System.Text;
-
 namespace SimpleTcpServer
 {
     public class TcpServer
@@ -15,10 +16,10 @@ namespace SimpleTcpServer
         private readonly ConcurrentDictionary<string, ushort> _clientUserIds = new();
         private readonly Timer _updateTimer;
         private readonly IPAddress _serverIp;
+        private const int MaxMessageSize = 1_048_576;
         private ushort _nextUserId = 1000; // 1000부터 시작
         private readonly object _userIdLock = new object();
         private bool _isRunning;
-
         public TcpServer(int port)
         {
             _serverIp = GetLocalIPAddress();
@@ -50,7 +51,6 @@ namespace SimpleTcpServer
             {
                 Console.WriteLine($"Error getting local IP address: {ex.Message}");
             }
-
             // 대체 방법: DNS를 통해 로컬 IP 주소 얻기
             try
             {
@@ -68,11 +68,9 @@ namespace SimpleTcpServer
             {
                 Console.WriteLine($"Error getting local IP address (fallback): {ex.Message}");
             }
-
             // 최후의 수단으로 localhost 반환
             return IPAddress.Loopback;
         }
-
         public async Task StartAsync()
         {
             _listener.Start();
@@ -80,7 +78,6 @@ namespace SimpleTcpServer
             var endpoint = (IPEndPoint)_listener.LocalEndpoint;
             Console.WriteLine($"Server started on {endpoint.Address}:{endpoint.Port}");
             Console.WriteLine($"Clients can connect to: {_serverIp}:{endpoint.Port}");
-
             while (_isRunning)
             {
                 try
@@ -118,42 +115,42 @@ namespace SimpleTcpServer
 
         private async Task HandleClientAsync(string clientId, TcpClient client)
         {
-            var buffer = new byte[1024];
             var stream = client.GetStream();
-
             try
             {
                 while (client.Connected && _isRunning)
                 {
-                    var bytesRead = await stream.ReadAsync(buffer, 0, buffer.Length);
-                    if (bytesRead == 0) break;
-
-                    var messageJson = Encoding.UTF8.GetString(buffer, 0, bytesRead);
-                    var message = Message.Deserialize(messageJson);
-
-                    if (message != null && message.Type == MessageType.Move)
+                    var messageJson = await ReadMessageAsync(stream);
+                    if (messageJson == null)
                     {
-                        if (_characters.TryGetValue(clientId, out var character) && 
-                            _clientUserIds.TryGetValue(clientId, out var userId))
-                        {
-                            var startPos = new Vector2(message.StartX, message.StartY);
-                            var targetPos = new Vector2(message.TargetX, message.TargetY);
-                            character.StartMovement(startPos, targetPos);
-
-                            Console.WriteLine($"Character {userId} moving from ({startPos.X}, {startPos.Y}) to ({targetPos.X}, {targetPos.Y})");
-
-                            // 메시지에 UserId와 속도 설정
-                            message.UserId = userId;
-                            message.CharacterId = clientId;
-                            message.Speed = character.Speed;
-                            message.CurrentX = character.Position.X;
-                            message.CurrentY = character.Position.Y;
-
-                            // 다른 클라이언트들에게 이동 정보 전달
-                            await BroadcastMessageAsync(message, clientId);
-                        }
+                        break;
+                    }
+                    var message = Message.Deserialize(messageJson);
+                    if (message == null)
+                    {
+                        Console.WriteLine($"Failed to deserialize message from {clientId}");
+                        continue;
+                    }
+                    if (message.Type == MessageType.Move &&
+                        _characters.TryGetValue(clientId, out var character) &&
+                        _clientUserIds.TryGetValue(clientId, out var userId))
+                    {
+                        var startPos = new Vector2(message.StartX, message.StartY);
+                        var targetPos = new Vector2(message.TargetX, message.TargetY);
+                        character.StartMovement(startPos, targetPos);
+                        Console.WriteLine($"Character {userId} moving from ({startPos.X}, {startPos.Y}) to ({targetPos.X}, {targetPos.Y})");
+                        message.UserId = userId;
+                        message.CharacterId = clientId;
+                        message.Speed = character.Speed;
+                        message.CurrentX = character.Position.X;
+                        message.CurrentY = character.Position.Y;
+                        await BroadcastMessageAsync(message, clientId);
                     }
                 }
+            }
+            catch (InvalidDataException ex)
+            {
+                Console.WriteLine($"Protocol error for client {clientId}: {ex.Message}");
             }
             catch (Exception ex)
             {
@@ -178,30 +175,17 @@ namespace SimpleTcpServer
         private async Task BroadcastMessageAsync(Message message, string senderId)
         {
             var messageJson = Message.Serialize(message);
-            var data = Encoding.UTF8.GetBytes(messageJson);
-
+            var payload = Encoding.UTF8.GetBytes(messageJson);
+            var packet = BuildPacket(payload);
             var tasks = new List<Task>();
             foreach (var kvp in _clients)
             {
                 if (kvp.Key != senderId && kvp.Value.Connected)
                 {
-                    tasks.Add(SendToClientAsync(kvp.Value, data));
+                    tasks.Add(SendRawPacketAsync(kvp.Value, packet));
                 }
             }
-
             await Task.WhenAll(tasks);
-        }
-
-        private async Task SendToClientAsync(TcpClient client, byte[] data)
-        {
-            try
-            {
-                await client.GetStream().WriteAsync(data, 0, data.Length);
-            }
-            catch
-            {
-                // 클라이언트 연결이 끊어진 경우 무시
-            }
         }
 
         private async Task SendUserIdAssignmentAsync(TcpClient client, ushort userId)
@@ -213,11 +197,10 @@ namespace SimpleTcpServer
                     Type = MessageType.UserIdAssignment,
                     UserId = userId
                 };
-                
                 var messageJson = Message.Serialize(message);
-                var data = Encoding.UTF8.GetBytes(messageJson);
-                
-                await client.GetStream().WriteAsync(data, 0, data.Length);
+                var payload = Encoding.UTF8.GetBytes(messageJson);
+                var packet = BuildPacket(payload);
+                await SendRawPacketAsync(client, packet);
             }
             catch (Exception ex)
             {
@@ -230,7 +213,6 @@ namespace SimpleTcpServer
             try
             {
                 var allUsers = new List<UserInfo>();
-                
                 foreach (var kvp in _characters)
                 {
                     var character = kvp.Value;
@@ -249,22 +231,75 @@ namespace SimpleTcpServer
                         });
                     }
                 }
-
                 var message = new Message
                 {
                     Type = MessageType.AllUsersInfo,
                     AllUsers = allUsers
                 };
-                
                 var messageJson = Message.Serialize(message);
-                var data = Encoding.UTF8.GetBytes(messageJson);
-                
-                await client.GetStream().WriteAsync(data, 0, data.Length);
+                var payload = Encoding.UTF8.GetBytes(messageJson);
+                var packet = BuildPacket(payload);
+                await SendRawPacketAsync(client, packet);
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"Error sending all users info: {ex.Message}");
             }
+        }
+
+        private static byte[] BuildPacket(byte[] payload)
+        {
+            var packet = new byte[sizeof(int) + payload.Length];
+            BinaryPrimitives.WriteInt32LittleEndian(packet.AsSpan(0, sizeof(int)), payload.Length);
+            Buffer.BlockCopy(payload, 0, packet, sizeof(int), payload.Length);
+            return packet;
+        }
+
+        private static async Task SendRawPacketAsync(TcpClient client, byte[] packet)
+        {
+            try
+            {
+                await client.GetStream().WriteAsync(packet, 0, packet.Length);
+            }
+            catch
+            {
+                // 클라이언트 연결이 끊어진 경우 무시
+            }
+        }
+
+        private static async Task<bool> ReadExactAsync(NetworkStream stream, byte[] buffer, int count)
+        {
+            var offset = 0;
+            while (offset < count)
+            {
+                var read = await stream.ReadAsync(buffer.AsMemory(offset, count - offset));
+                if (read == 0)
+                {
+                    return false;
+                }
+                offset += read;
+            }
+            return true;
+        }
+
+        private async Task<string?> ReadMessageAsync(NetworkStream stream)
+        {
+            var lengthBuffer = new byte[sizeof(int)];
+            if (!await ReadExactAsync(stream, lengthBuffer, lengthBuffer.Length))
+            {
+                return null;
+            }
+            var length = BinaryPrimitives.ReadInt32LittleEndian(lengthBuffer);
+            if (length <= 0 || length > MaxMessageSize)
+            {
+                throw new InvalidDataException($"Invalid message length: {length}");
+            }
+            var payload = new byte[length];
+            if (!await ReadExactAsync(stream, payload, length))
+            {
+                return null;
+            }
+            return Encoding.UTF8.GetString(payload);
         }
 
         private void UpdateCharacters(object? state)
@@ -274,7 +309,6 @@ namespace SimpleTcpServer
                 character.Update();
             }
         }
-
         public void Stop()
         {
             _isRunning = false;
@@ -283,3 +317,4 @@ namespace SimpleTcpServer
         }
     }
 }
+

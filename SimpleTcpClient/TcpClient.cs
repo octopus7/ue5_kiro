@@ -1,3 +1,5 @@
+﻿using System.Buffers.Binary;
+using System.IO;
 using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
@@ -63,6 +65,7 @@ namespace SimpleTcpClient
         private NetworkStream? _stream;
         private bool _isConnected;
         private Task? _receiveTask;
+        private const int MaxMessageSize = 1_048_576;
 
         public event Action<Message>? MessageReceived;
         public event Action<string>? StatusChanged;
@@ -114,8 +117,8 @@ namespace SimpleTcpClient
 
             try
             {
-                Log($"Sending move command Start=({startX:F1},{startY:F1}) Target=({targetX:F1},{targetY:F1})");
-                await _stream.WriteAsync(data, 0, data.Length);
+                Log($"Sending move command Start=({startX:F1},{startY:F1}) Target=({targetX:F1},{targetY:F1}) len={data.Length}");
+                await SendPacketAsync(data);
             }
             catch (Exception ex)
             {
@@ -124,19 +127,78 @@ namespace SimpleTcpClient
             }
         }
 
+        private async Task SendPacketAsync(byte[] payload)
+        {
+            var stream = _stream;
+            if (stream == null) return;
+
+            var lengthPrefix = new byte[sizeof(int)];
+            BinaryPrimitives.WriteInt32LittleEndian(lengthPrefix, payload.Length);
+
+            await stream.WriteAsync(lengthPrefix);
+            await stream.WriteAsync(payload);
+        }
+
+        private static async Task<bool> ReadExactAsync(NetworkStream stream, byte[] buffer, int count)
+        {
+            var offset = 0;
+            while (offset < count)
+            {
+                var read = await stream.ReadAsync(buffer.AsMemory(offset, count - offset));
+                if (read == 0)
+                {
+                    return false;
+                }
+
+                offset += read;
+            }
+
+            return true;
+        }
+
+        private async Task<string?> ReadMessageAsync(NetworkStream stream)
+        {
+            var lengthBuffer = new byte[sizeof(int)];
+            if (!await ReadExactAsync(stream, lengthBuffer, lengthBuffer.Length))
+            {
+                return null;
+            }
+
+            var length = BinaryPrimitives.ReadInt32LittleEndian(lengthBuffer);
+            if (length <= 0 || length > MaxMessageSize)
+            {
+                throw new InvalidDataException($"Invalid message length: {length}");
+            }
+
+            var payload = new byte[length];
+            if (!await ReadExactAsync(stream, payload, length))
+            {
+                return null;
+            }
+
+            return Encoding.UTF8.GetString(payload);
+        }
+
         private async Task ReceiveMessagesAsync()
         {
-            var buffer = new byte[1024];
-
             try
             {
                 while (_isConnected && _client?.Connected == true)
                 {
-                    var bytesRead = await _stream!.ReadAsync(buffer, 0, buffer.Length);
-                    if (bytesRead == 0) break;
+                    var stream = _stream;
+                    if (stream == null)
+                    {
+                        break;
+                    }
 
-                    var json = Encoding.UTF8.GetString(buffer, 0, bytesRead);
-                    Log($"Received {bytesRead} bytes: {json}");
+                    var json = await ReadMessageAsync(stream);
+                    if (json == null)
+                    {
+                        Log("Stream closed while waiting for message");
+                        break;
+                    }
+
+                    Log($"Received message len={json.Length}: {json}");
                     var message = Message.Deserialize(json);
 
                     if (message != null)
@@ -149,6 +211,11 @@ namespace SimpleTcpClient
                         Log("Failed to parse incoming message");
                     }
                 }
+            }
+            catch (InvalidDataException ex)
+            {
+                StatusChanged?.Invoke($"Protocol error: {ex.Message}");
+                Log($"Protocol error: {ex.Message}");
             }
             catch (Exception ex)
             {
@@ -167,3 +234,4 @@ namespace SimpleTcpClient
         }
     }
 }
+
