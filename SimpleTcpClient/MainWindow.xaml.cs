@@ -1,4 +1,7 @@
-﻿using System.Numerics;
+﻿using System.IO;
+using System.Numerics;
+using System.Reflection;
+using System.Text.Json;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -8,6 +11,12 @@ using System.Windows.Threading;
 
 namespace SimpleTcpClient;
 
+public class ServerSettings
+{
+    public string Host { get; set; } = "localhost";
+    public int Port { get; set; } = 8085;
+}
+
 public partial class MainWindow : Window
 {
     private GameTcpClient _tcpClient;
@@ -15,10 +24,16 @@ public partial class MainWindow : Window
     private ClientCharacter? _myCharacter;
     private ushort _myUserId = 0;
     private DispatcherTimer _updateTimer;
+    private readonly string _settingsFilePath;
 
     public MainWindow()
     {
         InitializeComponent();
+        
+        // 바이너리 경로에 설정 파일 경로 설정
+        var exeDirectory = System.IO.Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location) ?? Environment.CurrentDirectory;
+        _settingsFilePath = System.IO.Path.Combine(exeDirectory, "server_settings.json");
+        
         _tcpClient = new GameTcpClient();
         _tcpClient.MessageReceived += OnMessageReceived;
         _tcpClient.StatusChanged += OnStatusChanged;
@@ -28,6 +43,9 @@ public partial class MainWindow : Window
         _updateTimer.Interval = TimeSpan.FromMilliseconds(16); // ~60 FPS
         _updateTimer.Tick += UpdateTimer_Tick;
         _updateTimer.Start();
+
+        // 저장된 서버 설정 로드
+        LoadServerSettings();
     }
 
     private async void ConnectButton_Click(object sender, RoutedEventArgs e)
@@ -46,6 +64,9 @@ public partial class MainWindow : Window
             DisconnectButton.IsEnabled = true;
             ServerTextBox.IsEnabled = false;
             PortTextBox.IsEnabled = false;
+            
+            // 연결 성공 시 서버 설정 저장
+            SaveServerSettings(host, port);
         }
     }
 
@@ -238,6 +259,62 @@ public partial class MainWindow : Window
         {
             var userIdText = _myUserId > 0 ? $" | My ID: {_myUserId}" : "";
             PositionTextBlock.Text = $"Position: ({_myCharacter.Position.X:F0}, {_myCharacter.Position.Y:F0}){userIdText}";
+        }
+    }
+
+    private void LoadServerSettings()
+    {
+        try
+        {
+            if (File.Exists(_settingsFilePath))
+            {
+                var jsonString = File.ReadAllText(_settingsFilePath);
+                var settings = JsonSerializer.Deserialize<ServerSettings>(jsonString);
+                
+                if (settings != null)
+                {
+                    ServerTextBox.Text = settings.Host;
+                    PortTextBox.Text = settings.Port.ToString();
+                }
+            }
+            else
+            {
+                // 파일이 없으면 기본값 사용
+                ServerTextBox.Text = "localhost";
+                PortTextBox.Text = "8085";
+            }
+        }
+        catch (Exception ex)
+        {
+            // 설정 로드 실패 시 기본값 유지
+            Console.WriteLine($"Failed to load server settings: {ex.Message}");
+            ServerTextBox.Text = "localhost";
+            PortTextBox.Text = "8085";
+        }
+    }
+
+    private void SaveServerSettings(string host, int port)
+    {
+        try
+        {
+            var settings = new ServerSettings
+            {
+                Host = host,
+                Port = port
+            };
+
+            var jsonString = JsonSerializer.Serialize(settings, new JsonSerializerOptions
+            {
+                WriteIndented = true
+            });
+
+            File.WriteAllText(_settingsFilePath, jsonString);
+            Console.WriteLine($"Server settings saved to: {_settingsFilePath}");
+        }
+        catch (Exception ex)
+        {
+            // 설정 저장 실패 시 무시
+            Console.WriteLine($"Failed to save server settings: {ex.Message}");
         }
     }
 
