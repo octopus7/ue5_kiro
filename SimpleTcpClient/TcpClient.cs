@@ -66,11 +66,18 @@ namespace SimpleTcpClient
 
         public event Action<Message>? MessageReceived;
         public event Action<string>? StatusChanged;
+        public event Action<string>? LogGenerated;
+
+        private void Log(string message)
+        {
+            LogGenerated?.Invoke($"[{DateTime.Now:HH:mm:ss}] {message}");
+        }
 
         public async Task<bool> ConnectAsync(string host, int port)
         {
             try
             {
+                Log($"Connecting to {host}:{port}");
                 _client = new TcpClient();
                 await _client.ConnectAsync(host, port);
                 _stream = _client.GetStream();
@@ -78,11 +85,13 @@ namespace SimpleTcpClient
 
                 _receiveTask = Task.Run(ReceiveMessagesAsync);
                 StatusChanged?.Invoke("Connected");
+                Log("Connection established");
                 return true;
             }
             catch (Exception ex)
             {
                 StatusChanged?.Invoke($"Connection failed: {ex.Message}");
+                Log($"Connection failed: {ex.Message}");
                 return false;
             }
         }
@@ -105,11 +114,13 @@ namespace SimpleTcpClient
 
             try
             {
+                Log($"Sending move command Start=({startX:F1},{startY:F1}) Target=({targetX:F1},{targetY:F1})");
                 await _stream.WriteAsync(data, 0, data.Length);
             }
             catch (Exception ex)
             {
                 StatusChanged?.Invoke($"Send error: {ex.Message}");
+                Log($"Send error: {ex.Message}");
             }
         }
 
@@ -125,17 +136,24 @@ namespace SimpleTcpClient
                     if (bytesRead == 0) break;
 
                     var json = Encoding.UTF8.GetString(buffer, 0, bytesRead);
+                    Log($"Received {bytesRead} bytes: {json}");
                     var message = Message.Deserialize(json);
 
                     if (message != null)
                     {
+                        Log($"Parsed message: {message.Type}");
                         MessageReceived?.Invoke(message);
+                    }
+                    else
+                    {
+                        Log("Failed to parse incoming message");
                     }
                 }
             }
             catch (Exception ex)
             {
                 StatusChanged?.Invoke($"Receive error: {ex.Message}");
+                Log($"Receive error: {ex.Message}");
             }
         }
 
@@ -145,6 +163,7 @@ namespace SimpleTcpClient
             _stream?.Close();
             _client?.Close();
             StatusChanged?.Invoke("Disconnected");
+            Log("Disconnected from server");
         }
     }
 }

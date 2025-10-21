@@ -25,6 +25,7 @@ public partial class MainWindow : Window
     private ushort _myUserId = 0;
     private DispatcherTimer _updateTimer;
     private readonly string _settingsFilePath;
+    private bool _isLogVisible;
 
     public MainWindow()
     {
@@ -37,6 +38,7 @@ public partial class MainWindow : Window
         _tcpClient = new GameTcpClient();
         _tcpClient.MessageReceived += OnMessageReceived;
         _tcpClient.StatusChanged += OnStatusChanged;
+        _tcpClient.LogGenerated += AppendLog;
         
         // 60 FPS 업데이트 타이머
         _updateTimer = new DispatcherTimer();
@@ -72,6 +74,7 @@ public partial class MainWindow : Window
 
     private void DisconnectButton_Click(object sender, RoutedEventArgs e)
     {
+        AppendLog("Disconnect requested");
         _tcpClient.Disconnect();
         ConnectButton.IsEnabled = true;
         DisconnectButton.IsEnabled = false;
@@ -114,6 +117,7 @@ public partial class MainWindow : Window
             {
                 // 서버로부터 받은 UserId 설정
                 _myUserId = message.UserId;
+                AppendLog($"Assigned user ID: {_myUserId}");
                 PlayerIdLabel.Text = _myUserId.ToString();
                 _myCharacter = new ClientCharacter(_myUserId, "");
                 _myCharacter.Position = new Vector2(100, 100);
@@ -125,6 +129,7 @@ public partial class MainWindow : Window
                 // 모든 유저 정보 처리
                 if (message.AllUsers != null)
                 {
+                    AppendLog($"Received all users info: {message.AllUsers.Count} users");
                     foreach (var userInfo in message.AllUsers)
                     {
                         if (userInfo.UserId != _myUserId) // 자신이 아닌 경우만
@@ -155,6 +160,7 @@ public partial class MainWindow : Window
                         var (_, _, clientChar) = _otherCharacters[message.CharacterId];
                         var startPos = new Vector2(message.CurrentX, message.CurrentY);
                         var targetPos = new Vector2(message.TargetX, message.TargetY);
+                        AppendLog($"Move update for {message.CharacterId} to ({targetPos.X:F1}, {targetPos.Y:F1})");
                         clientChar.StartMovement(startPos, targetPos, message.Speed);
                     }
                     else
@@ -171,6 +177,7 @@ public partial class MainWindow : Window
                             Speed = message.Speed,
                             IsMoving = true
                         };
+                        AppendLog($"New character tracked: {userInfo.CharacterId} (User {userInfo.UserId})");
                         CreateOrUpdateOtherCharacter(userInfo);
                     }
                 }
@@ -183,6 +190,7 @@ public partial class MainWindow : Window
         Dispatcher.Invoke(() =>
         {
             StatusTextBlock.Text = status;
+            AppendLog($"Status changed: {status}");
         });
     }
 
@@ -318,10 +326,32 @@ public partial class MainWindow : Window
         }
     }
 
+    private void ToggleLogButton_Click(object sender, RoutedEventArgs e)
+    {
+        _isLogVisible = !_isLogVisible;
+        LogPanel.Visibility = _isLogVisible ? Visibility.Visible : Visibility.Collapsed;
+        ToggleLogButton.Content = _isLogVisible ? "Hide Log" : "Show Log";
+        if (_isLogVisible)
+        {
+            LogTextBox.ScrollToEnd();
+        }
+    }
+
+    private void AppendLog(string message)
+    {
+        Dispatcher.Invoke(() =>
+        {
+            LogTextBox.AppendText($"{message}{Environment.NewLine}");
+            LogTextBox.ScrollToEnd();
+        });
+    }
+
     protected override void OnClosed(EventArgs e)
     {
         _updateTimer?.Stop();
+        _tcpClient.LogGenerated -= AppendLog;
         _tcpClient.Disconnect();
         base.OnClosed(e);
     }
 }
+
