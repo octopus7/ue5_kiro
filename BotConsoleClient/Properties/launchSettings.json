@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "BotConsoleClient": {
+      "commandName": "Project",
+      "commandLineArgs": "172.21.16.1 8085 20\r\n"
+    }
+  }
+}
