@@ -57,4 +57,7 @@ private:
 
 	// Update movement feedback display
 	void UpdateMovementFeedback(float DeltaTime);
+
+	// Draw circle helper on 2D canvas
+	void DrawCircleOverlay(const FVector2D& Center, float Radius, int32 NumSegments, const FLinearColor& Color);
 };

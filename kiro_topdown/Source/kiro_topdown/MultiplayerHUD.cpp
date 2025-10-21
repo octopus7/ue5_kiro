@@ -40,7 +40,7 @@ void AMultiplayerHUD::DrawHUD()
 			
 			// Draw a circle at the target location
 			float Radius = 20.0f * (1.0f + (1.0f - Alpha));
-			DrawCircle(FVector(ScreenLocation.X, ScreenLocation.Y, 0.0f), Radius, 16, DrawColor);
+			//DrawCircleOverlay(ScreenLocation, Radius, 32, DrawColor);
 		}
 	}
 }
@@ -50,6 +50,27 @@ void AMultiplayerHUD::UpdateConnectionStatus(bool bIsConnected, const FString& S
 	if (ConnectionStatusWidget)
 	{
 		ConnectionStatusWidget->UpdateConnectionStatus(bIsConnected, StatusMessage);
+	}
+}
+
+void AMultiplayerHUD::DrawCircleOverlay(const FVector2D& Center, float Radius, int32 NumSegments, const FLinearColor& Color)
+{
+	if (!Canvas || NumSegments < 3)
+	{
+		return;
+	}
+
+	const float AngleStep = 2.0f * PI / NumSegments;
+	FVector2D PreviousPoint = Center + FVector2D(Radius, 0.0f);
+
+	for (int32 SegmentIndex = 1; SegmentIndex <= NumSegments; ++SegmentIndex)
+	{
+		const float Angle = AngleStep * SegmentIndex;
+		const FVector2D NextPoint = Center + FVector2D(FMath::Cos(Angle) * Radius, FMath::Sin(Angle) * Radius);
+
+		DrawLine(PreviousPoint.X, PreviousPoint.Y, NextPoint.X, NextPoint.Y, Color, 1.0f);
+
+		PreviousPoint = NextPoint;
 	}
 }
 

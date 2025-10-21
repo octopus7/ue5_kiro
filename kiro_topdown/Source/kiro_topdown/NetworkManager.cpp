@@ -64,17 +64,17 @@ bool UNetworkManager::ConnectToServer(const FString& InServerIP, int32 Port)
         return false;
     }
     
-    // Create server address
-    FIPv4Address IPv4Address;
-    if (!FIPv4Address::Parse(ServerIP, IPv4Address))
+    TSharedRef<FInternetAddr> ServerAddress = SocketSubsystem->CreateInternetAddr();
+
+    bool bIsValidIp = false;
+    ServerAddress->SetIp(*ServerIP, bIsValidIp);
+    if (!bIsValidIp)
     {
         UE_LOG(LogTemp, Error, TEXT("Invalid server IP address: %s"), *ServerIP);
         CleanupSocket();
         return false;
     }
-    
-    TSharedRef<FInternetAddr> ServerAddress = SocketSubsystem->CreateInternetAddr();
-    ServerAddress->SetIp(IPv4Address.Value);
+
     ServerAddress->SetPort(Port);
     
     // Connect to server
