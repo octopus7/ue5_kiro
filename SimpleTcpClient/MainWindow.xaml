@@ -50,7 +50,14 @@
         </StackPanel>
 
         <!-- Log Panel -->
-        <Border x:Name="LogPanel" Grid.Row="3" BorderBrush="Black" BorderThickness="1" Margin="10" Visibility="Collapsed">
+        <Border x:Name="LogPanel"
+                Grid.Row="3"
+                BorderBrush="Black"
+                BorderThickness="1"
+                Margin="10"
+                Visibility="Collapsed"
+                MinHeight="120"
+                MaxHeight="240">
             <TextBox x:Name="LogTextBox"
                      IsReadOnly="True"
                      AcceptsReturn="True"
@@ -60,7 +67,8 @@
                      Background="Black"
                      Foreground="LightGreen"
                      FontFamily="Consolas"
-                     MinHeight="120"/>
+                     MinHeight="120"
+                     MaxHeight="240"/>
         </Border>
     </Grid>
 </Window>
