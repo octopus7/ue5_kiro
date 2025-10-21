@@ -4,6 +4,10 @@
 #include "Engine/Engine.h"
 #include "Engine/World.h"
 #include "TimerManager.h"
+#include "IPAddress.h"
+#include "Serialization/MemoryWriter.h"
+#include "Serialization/MemoryReader.h"
+#include "Containers/StringConv.h"
 
 void UNetworkManager::Initialize(FSubsystemCollectionBase& Collection)
 {
@@ -184,42 +188,80 @@ void UNetworkManager::SendMessage(const FNetworkMessage& Message)
 
 TArray<uint8> UNetworkManager::SerializeMessage(const FNetworkMessage& Message)
 {
-    TArray<uint8> Result;
-    
-    try
+    // Serialize message payload (without length prefix)
+    TArray<uint8> Payload;
+    FMemoryWriter Writer(Payload, true);
+
+    auto WriteUInt8 = [&Writer](uint8 Value)
     {
-        // Convert UE message to protobuf
-        simpletcp::NetworkMessage ProtoMessage;
-        Message.ToProtobuf(ProtoMessage);
-        
-        // Serialize protobuf message
-        std::string SerializedString;
-        if (!ProtoMessage.SerializeToString(&SerializedString))
+        Writer.Serialize(&Value, sizeof(Value));
+    };
+
+    auto WriteInt32 = [&Writer](int32 Value)
+    {
+        Writer.Serialize(&Value, sizeof(Value));
+    };
+
+    auto WriteUInt32 = [&Writer](uint32 Value)
+    {
+        Writer.Serialize(&Value, sizeof(Value));
+    };
+
+    auto WriteFloat = [&Writer](float Value)
+    {
+        Writer.Serialize(&Value, sizeof(Value));
+    };
+
+    auto WriteString = [&Writer](const FString& Str)
+    {
+        FTCHARToUTF8 Converted(*Str);
+        uint32 Length = static_cast<uint32>(Converted.Length());
+        Writer.Serialize(&Length, sizeof(Length));
+        if (Length > 0)
         {
-            UE_LOG(LogTemp, Error, TEXT("Failed to serialize protobuf message"));
-            return Result;
+            Writer.Serialize(const_cast<ANSICHAR*>(Converted.Get()), Length);
         }
-        
-        // Create message with 4-byte length prefix
-        uint32 MessageLength = SerializedString.size();
-        Result.SetNum(sizeof(uint32) + MessageLength);
-        
-        // Write length prefix (little-endian)
-        FMemory::Memcpy(Result.GetData(), &MessageLength, sizeof(uint32));
-        
-        // Write message data
-        FMemory::Memcpy(Result.GetData() + sizeof(uint32), SerializedString.data(), MessageLength);
-        
-        UE_LOG(LogTemp, VeryVerbose, TEXT("Serialized message: Type=%d, Length=%d"), 
-               (int32)Message.MessageType, MessageLength);
-    }
-    catch (const std::exception& e)
+    };
+
+    WriteUInt8(static_cast<uint8>(Message.MessageType));
+    WriteInt32(Message.UserID);
+    WriteString(Message.CharacterID);
+    WriteFloat(Message.StartX);
+    WriteFloat(Message.StartY);
+    WriteFloat(Message.TargetX);
+    WriteFloat(Message.TargetY);
+    WriteFloat(Message.CurrentX);
+    WriteFloat(Message.CurrentY);
+    WriteFloat(Message.Speed);
+    WriteUInt8(Message.bIsMoving ? 1 : 0);
+
+    WriteUInt32(static_cast<uint32>(Message.AllUsers.Num()));
+    for (const FUserInfo& User : Message.AllUsers)
     {
-        UE_LOG(LogTemp, Error, TEXT("Exception during message serialization: %s"), 
-               UTF8_TO_TCHAR(e.what()));
-        Result.Empty();
+        WriteInt32(User.UserID);
+        WriteString(User.CharacterID);
+        WriteFloat(User.CurrentX);
+        WriteFloat(User.CurrentY);
+        WriteFloat(User.TargetX);
+        WriteFloat(User.TargetY);
+        WriteFloat(User.Speed);
+        WriteUInt8(User.bIsMoving ? 1 : 0);
     }
-    
+
+    // Prepend length prefix expected by socket protocol
+    TArray<uint8> Result;
+    uint32 MessageLength = static_cast<uint32>(Payload.Num());
+    Result.SetNumUninitialized(sizeof(uint32) + MessageLength);
+
+    FMemory::Memcpy(Result.GetData(), &MessageLength, sizeof(uint32));
+    if (MessageLength > 0)
+    {
+        FMemory::Memcpy(Result.GetData() + sizeof(uint32), Payload.GetData(), MessageLength);
+    }
+
+    UE_LOG(LogTemp, VeryVerbose, TEXT("Serialized message: Type=%d, Length=%d"),
+           static_cast<int32>(Message.MessageType), MessageLength);
+
     return Result;
 }
 
@@ -232,42 +274,196 @@ FNetworkMessage UNetworkManager::DeserializeMessage(const TArray<uint8>& Data)
         UE_LOG(LogTemp, Error, TEXT("Message data too small for length prefix"));
         return Result;
     }
-    
-    try
+
+    uint32 MessageLength = 0;
+    FMemory::Memcpy(&MessageLength, Data.GetData(), sizeof(uint32));
+
+    if (MessageLength == 0 || Data.Num() < static_cast<int32>(sizeof(uint32) + MessageLength))
     {
-        // Read length prefix
-        uint32 MessageLength;
-        FMemory::Memcpy(&MessageLength, Data.GetData(), sizeof(uint32));
-        
-        if (Data.Num() != sizeof(uint32) + MessageLength)
+        UE_LOG(LogTemp, Error, TEXT("Message length mismatch: Length=%u, BufferSize=%d"),
+               MessageLength, Data.Num());
+        return Result;
+    }
+
+    TArray<uint8> Payload;
+    Payload.SetNumUninitialized(MessageLength);
+    FMemory::Memcpy(Payload.GetData(), Data.GetData() + sizeof(uint32), MessageLength);
+
+    FMemoryReader Reader(Payload, true);
+
+    auto EnsureBytes = [&Reader](int64 Count) -> bool
+    {
+        return (Reader.TotalSize() - Reader.Tell()) >= Count;
+    };
+
+    auto ReadUInt8 = [&Reader, &EnsureBytes](uint8& OutValue) -> bool
+    {
+        if (!EnsureBytes(sizeof(uint8)))
         {
-            UE_LOG(LogTemp, Error, TEXT("Message length mismatch: Expected=%d, Actual=%d"), 
-                   sizeof(uint32) + MessageLength, Data.Num());
+            return false;
+        }
+        Reader.Serialize(&OutValue, sizeof(uint8));
+        return true;
+    };
+
+    auto ReadInt32 = [&Reader, &EnsureBytes](int32& OutValue) -> bool
+    {
+        if (!EnsureBytes(sizeof(int32)))
+        {
+            return false;
+        }
+        Reader.Serialize(&OutValue, sizeof(int32));
+        return true;
+    };
+
+    auto ReadUInt32 = [&Reader, &EnsureBytes](uint32& OutValue) -> bool
+    {
+        if (!EnsureBytes(sizeof(uint32)))
+        {
+            return false;
+        }
+        Reader.Serialize(&OutValue, sizeof(uint32));
+        return true;
+    };
+
+    auto ReadFloat = [&Reader, &EnsureBytes](float& OutValue) -> bool
+    {
+        if (!EnsureBytes(sizeof(float)))
+        {
+            return false;
+        }
+        Reader.Serialize(&OutValue, sizeof(float));
+        return true;
+    };
+
+    auto ReadString = [&Reader, &EnsureBytes](FString& OutString) -> bool
+    {
+        uint32 Length = 0;
+        if (!EnsureBytes(sizeof(uint32)))
+        {
+            return false;
+        }
+        Reader.Serialize(&Length, sizeof(uint32));
+
+        if (!EnsureBytes(Length))
+        {
+            return false;
+        }
+
+        if (Length == 0)
+        {
+            OutString.Empty();
+            return true;
+        }
+
+        TArray<ANSICHAR> Buffer;
+        Buffer.SetNumUninitialized(Length + 1);
+        Reader.Serialize(Buffer.GetData(), Length);
+        Buffer[Length] = '\0';
+        OutString = FString(UTF8_TO_TCHAR(Buffer.GetData()));
+        return true;
+    };
+
+    uint8 MessageTypeByte = 0;
+    if (!ReadUInt8(MessageTypeByte))
+    {
+        UE_LOG(LogTemp, Error, TEXT("Failed to read message type"));
+        return Result;
+    }
+
+    if (MessageTypeByte <= static_cast<uint8>(ENetworkMessageType::ALL_USERS_INFO))
+    {
+        Result.MessageType = static_cast<ENetworkMessageType>(MessageTypeByte);
+    }
+
+    int32 UserID = 0;
+    if (!ReadInt32(UserID))
+    {
+        UE_LOG(LogTemp, Error, TEXT("Failed to read user ID"));
+        return Result;
+    }
+    Result.UserID = UserID;
+
+    FString CharacterID;
+    if (!ReadString(CharacterID))
+    {
+        UE_LOG(LogTemp, Error, TEXT("Failed to read character ID"));
+        return Result;
+    }
+    Result.CharacterID = CharacterID;
+
+    if (!ReadFloat(Result.StartX) ||
+        !ReadFloat(Result.StartY) ||
+        !ReadFloat(Result.TargetX) ||
+        !ReadFloat(Result.TargetY) ||
+        !ReadFloat(Result.CurrentX) ||
+        !ReadFloat(Result.CurrentY) ||
+        !ReadFloat(Result.Speed))
+    {
+        UE_LOG(LogTemp, Error, TEXT("Failed to read movement data"));
+        return Result;
+    }
+
+    uint8 IsMovingByte = 0;
+    if (!ReadUInt8(IsMovingByte))
+    {
+        UE_LOG(LogTemp, Error, TEXT("Failed to read movement state"));
+        return Result;
+    }
+    Result.bIsMoving = (IsMovingByte != 0);
+
+    uint32 UserCount = 0;
+    if (!ReadUInt32(UserCount))
+    {
+        UE_LOG(LogTemp, Error, TEXT("Failed to read user count"));
+        return Result;
+    }
+
+    Result.AllUsers.Reset();
+    for (uint32 Index = 0; Index < UserCount; ++Index)
+    {
+        FUserInfo User;
+
+        int32 RemoteUserID = 0;
+        if (!ReadInt32(RemoteUserID))
+        {
+            UE_LOG(LogTemp, Error, TEXT("Failed to read remote user ID"));
             return Result;
         }
-        
-        // Deserialize protobuf message
-        simpletcp::NetworkMessage ProtoMessage;
-        std::string MessageData(reinterpret_cast<const char*>(Data.GetData() + sizeof(uint32)), MessageLength);
-        
-        if (!ProtoMessage.ParseFromString(MessageData))
+        User.UserID = RemoteUserID;
+
+        FString RemoteCharacterID;
+        if (!ReadString(RemoteCharacterID))
         {
-            UE_LOG(LogTemp, Error, TEXT("Failed to parse protobuf message"));
+            UE_LOG(LogTemp, Error, TEXT("Failed to read remote character ID"));
             return Result;
         }
-        
-        // Convert protobuf to UE message
-        Result = FNetworkMessage(ProtoMessage);
-        
-        UE_LOG(LogTemp, VeryVerbose, TEXT("Deserialized message: Type=%d, UserID=%d"), 
-               (int32)Result.MessageType, Result.UserID);
+        User.CharacterID = RemoteCharacterID;
+
+        if (!ReadFloat(User.CurrentX) ||
+            !ReadFloat(User.CurrentY) ||
+            !ReadFloat(User.TargetX) ||
+            !ReadFloat(User.TargetY) ||
+            !ReadFloat(User.Speed))
+        {
+            UE_LOG(LogTemp, Error, TEXT("Failed to read remote movement data"));
+            return Result;
+        }
+
+        uint8 RemoteIsMoving = 0;
+        if (!ReadUInt8(RemoteIsMoving))
+        {
+            UE_LOG(LogTemp, Error, TEXT("Failed to read remote movement state"));
+            return Result;
+        }
+        User.bIsMoving = (RemoteIsMoving != 0);
+
+        Result.AllUsers.Add(User);
     }
-    catch (const std::exception& e)
-    {
-        UE_LOG(LogTemp, Error, TEXT("Exception during message deserialization: %s"), 
-               UTF8_TO_TCHAR(e.what()));
-    }
-    
+
+    UE_LOG(LogTemp, VeryVerbose, TEXT("Deserialized message: Type=%d, UserID=%d"),
+           static_cast<int32>(Result.MessageType), Result.UserID);
+
     return Result;
 }
 
@@ -358,8 +554,9 @@ void UNetworkManager::ProcessMessageQueue()
     {
         ProcessIncomingMessage(MessageData);
     }
-}v
-oid UNetworkManager::StartReconnection()
+}
+
+void UNetworkManager::StartReconnection()
 {
     if (bShouldReconnect)
     {
@@ -460,3 +657,5 @@ void UNetworkManager::AttemptReconnection()
         }
     }
 }
+
+

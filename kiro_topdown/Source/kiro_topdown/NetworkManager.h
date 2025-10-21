@@ -17,7 +17,7 @@ class FNetworkReceiver;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnMessageReceived, const FNetworkMessage&, Message);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnConnectionStatusChanged, bool, bIsConnected);
-DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnUserIDAssigned, uint32, UserID);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnUserIDAssigned, int32, UserID);
 
 /**
  * TCP Network Manager for handling communication with the C# server
@@ -69,7 +69,7 @@ public:
 
     // Getters
     UFUNCTION(BlueprintCallable, Category = "Network")
-    uint32 GetAssignedUserID() const { return AssignedUserID; }
+    int32 GetAssignedUserID() const { return AssignedUserID; }
     
     UFUNCTION(BlueprintCallable, Category = "Network")
     int32 GetReconnectAttempts() const { return ReconnectAttempts; }
@@ -85,7 +85,7 @@ protected:
     bool bIsConnected;
     FString ServerIP;
     int32 ServerPort;
-    uint32 AssignedUserID;
+    int32 AssignedUserID;
     
     // Reconnection management
     bool bShouldReconnect;

@@ -34,10 +34,10 @@ public:
 
 	// Property setters and getters
 	UFUNCTION(BlueprintCallable, Category = "Character Properties")
-	void SetUserID(uint32 InUserID) { UserID = InUserID; }
+	void SetUserID(int32 InUserID) { UserID = InUserID; }
 
 	UFUNCTION(BlueprintCallable, Category = "Character Properties")
-	uint32 GetUserID() const { return UserID; }
+	int32 GetUserID() const { return UserID; }
 
 	UFUNCTION(BlueprintCallable, Category = "Character Properties")
 	void SetCharacterID(const FString& InCharacterID) { CharacterID = InCharacterID; }
@@ -51,13 +51,16 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Character Properties")
 	bool GetIsLocalPlayer() const { return bIsLocalPlayer; }
 
+	// Input handling (for local player)
+	void OnMouseClick();
+
 	// Movement properties
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "Movement")
 	float MovementSpeed = 100.0f;
 
 	// Character properties
 	UPROPERTY(BlueprintReadOnly, Category = "Character Properties")
-	uint32 UserID;
+	int32 UserID;
 
 	UPROPERTY(BlueprintReadOnly, Category = "Character Properties")
 	FString CharacterID;
@@ -80,8 +83,6 @@ private:
 	bool bIsMoving;
 	float LastUpdateTime;
 
-	// Input handling (for local player)
-	void OnMouseClick();
 	FVector GetMouseWorldPosition();
 
 	// Movement processing

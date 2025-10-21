@@ -26,7 +26,7 @@ struct KIRO_TOPDOWN_API FUserInfo
     GENERATED_BODY()
 
     UPROPERTY(BlueprintReadWrite, EditAnywhere)
-    uint32 UserID = 0;
+    int32 UserID = 0;
     
     UPROPERTY(BlueprintReadWrite, EditAnywhere)
     FString CharacterID;
@@ -71,7 +71,7 @@ struct KIRO_TOPDOWN_API FNetworkMessage
     FString CharacterID;
     
     UPROPERTY(BlueprintReadWrite, EditAnywhere)
-    uint32 UserID = 0;
+    int32 UserID = 0;
     
     UPROPERTY(BlueprintReadWrite, EditAnywhere)
     float StartX = 0.0f;

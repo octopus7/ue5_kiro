@@ -211,8 +211,9 @@ void FNetworkReceiver::HandleReceiveError(const FString& ErrorMessage)
     {
         UE_LOG(LogTemp, Error, TEXT("NetworkReceiver error: %s"), *ErrorMessage);
     }
-}bo
-ol FNetworkReceiver::IsConnectionValid() const
+}
+
+bool FNetworkReceiver::IsConnectionValid() const
 {
     if (!Socket)
     {

@@ -8,7 +8,7 @@ public class kiro_topdown : ModuleRules
 	{
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
 	
-		PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine", "InputCore", "EnhancedInput", "NavigationSystem", "AIModule", "Sockets", "Networking" });
+		PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine", "InputCore", "EnhancedInput", "NavigationSystem", "AIModule", "Sockets", "Networking", "UMG", "Slate", "SlateCore" });
 
 		PrivateDependencyModuleNames.AddRange(new string[] {  });
 		

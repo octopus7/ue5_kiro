@@ -55,7 +55,7 @@ void UCharacterManager::Deinitialize()
 	UE_LOG(LogTemp, Log, TEXT("CharacterManager deinitialized"));
 }
 
-void UCharacterManager::SpawnLocalCharacter(uint32 UserID)
+void UCharacterManager::SpawnLocalCharacter(int32 UserID)
 {
 	UE_LOG(LogTemp, Log, TEXT("Spawning local character for UserID: %d"), UserID);
 	
@@ -80,7 +80,7 @@ void UCharacterManager::SpawnLocalCharacter(uint32 UserID)
 	}
 }
 
-void UCharacterManager::SpawnRemoteCharacter(uint32 UserID, const FString& CharacterID)
+void UCharacterManager::SpawnRemoteCharacter(int32 UserID, const FString& CharacterID)
 {
 	UE_LOG(LogTemp, Log, TEXT("Spawning remote character for UserID: %d, CharacterID: %s"), UserID, *CharacterID);
 	
@@ -108,7 +108,7 @@ void UCharacterManager::SpawnRemoteCharacter(uint32 UserID, const FString& Chara
 	}
 }
 
-void UCharacterManager::RemoveCharacter(uint32 UserID)
+void UCharacterManager::RemoveCharacter(int32 UserID)
 {
 	if (AMultiplayerCharacter** FoundCharacter = Characters.Find(UserID))
 	{
@@ -121,7 +121,7 @@ void UCharacterManager::RemoveCharacter(uint32 UserID)
 	}
 }
 
-AMultiplayerCharacter* UCharacterManager::GetCharacterByUserID(uint32 UserID)
+AMultiplayerCharacter* UCharacterManager::GetCharacterByUserID(int32 UserID)
 {
 	if (AMultiplayerCharacter** FoundCharacter = Characters.Find(UserID))
 	{
@@ -135,7 +135,7 @@ AMultiplayerCharacter* UCharacterManager::GetLocalCharacter()
 	return GetCharacterByUserID(LocalUserID);
 }
 
-AMultiplayerCharacter* UCharacterManager::SpawnCharacterAtLocation(uint32 UserID, const FString& CharacterID, bool bIsLocal, const FVector& SpawnLocation)
+AMultiplayerCharacter* UCharacterManager::SpawnCharacterAtLocation(int32 UserID, const FString& CharacterID, bool bIsLocal, const FVector& SpawnLocation)
 {
 	UWorld* World = GetWorld();
 	if (!World)
@@ -177,7 +177,7 @@ FVector UCharacterManager::GetDefaultSpawnLocation()
 	// Default spawn location - can be customized based on game requirements
 	return FVector(0.0f, 0.0f, 100.0f);
 }
-void UCharacterManager::HandleUserIDAssignment(uint32 UserID)
+void UCharacterManager::HandleUserIDAssignment(int32 UserID)
 {
 	UE_LOG(LogTemp, Log, TEXT("Handling UserID assignment: %d"), UserID);
 	
@@ -199,7 +199,7 @@ void UCharacterManager::HandleAllUsersInfo(const TArray<FUserInfo>& AllUsers)
 	UE_LOG(LogTemp, Log, TEXT("Handling AllUsersInfo with %d users"), AllUsers.Num());
 	
 	// Clear existing remote characters (keep local character)
-	TArray<uint32> UsersToRemove;
+	TArray<int32> UsersToRemove;
 	for (auto& CharacterPair : Characters)
 	{
 		if (CharacterPair.Key != LocalUserID)
@@ -208,7 +208,7 @@ void UCharacterManager::HandleAllUsersInfo(const TArray<FUserInfo>& AllUsers)
 		}
 	}
 	
-	for (uint32 UserIDToRemove : UsersToRemove)
+	for (int32 UserIDToRemove : UsersToRemove)
 	{
 		RemoveCharacter(UserIDToRemove);
 	}
@@ -243,7 +243,7 @@ void UCharacterManager::HandleAllUsersInfo(const TArray<FUserInfo>& AllUsers)
 	}
 }
 
-void UCharacterManager::HandleUserConnected(uint32 UserID, const FString& CharacterID)
+void UCharacterManager::HandleUserConnected(int32 UserID, const FString& CharacterID)
 {
 	UE_LOG(LogTemp, Log, TEXT("Handling user connected: UserID %d, CharacterID %s"), UserID, *CharacterID);
 	
@@ -254,7 +254,7 @@ void UCharacterManager::HandleUserConnected(uint32 UserID, const FString& Charac
 	}
 }
 
-void UCharacterManager::HandleUserDisconnected(uint32 UserID)
+void UCharacterManager::HandleUserDisconnected(int32 UserID)
 {
 	UE_LOG(LogTemp, Log, TEXT("Handling user disconnected: UserID %d"), UserID);
 	
@@ -370,7 +370,7 @@ void UCharacterManager::OnNetworkMessageReceived(const FNetworkMessage& Message)
 	}
 }
 
-void UCharacterManager::OnUserIDAssigned(uint32 UserID)
+void UCharacterManager::OnUserIDAssigned(int32 UserID)
 {
 	HandleUserIDAssignment(UserID);
 }
@@ -382,7 +382,7 @@ void UCharacterManager::OnConnectionStatusChanged(bool bIsConnected)
 	if (!bIsConnected)
 	{
 		// Clear all remote characters when disconnected, but keep local character
-		TArray<uint32> UsersToRemove;
+		TArray<int32> UsersToRemove;
 		for (auto& CharacterPair : Characters)
 		{
 			if (CharacterPair.Key != LocalUserID)
@@ -391,7 +391,7 @@ void UCharacterManager::OnConnectionStatusChanged(bool bIsConnected)
 			}
 		}
 		
-		for (uint32 UserIDToRemove : UsersToRemove)
+		for (int32 UserIDToRemove : UsersToRemove)
 		{
 			RemoveCharacter(UserIDToRemove);
 		}
