@@ -13,7 +13,10 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Protobuf Include="Protos\network_message.proto" ProtoRoot="Protos" GrpcServices="None" />
+    <Protobuf Include="..\Protos\network_message.proto"
+              Link="Protos\network_message.proto"
+              ProtoRoot="..\Protos"
+              GrpcServices="None" />
   </ItemGroup>
 
 </Project>
