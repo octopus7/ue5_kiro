@@ -12,8 +12,11 @@ namespace SimpleTcpServer
         private readonly TcpListener _listener;
         private readonly ConcurrentDictionary<string, TcpClient> _clients = new();
         private readonly ConcurrentDictionary<string, Character> _characters = new();
+        private readonly ConcurrentDictionary<string, ushort> _clientUserIds = new();
         private readonly Timer _updateTimer;
         private readonly IPAddress _serverIp;
+        private ushort _nextUserId = 1000; // 1000부터 시작
+        private readonly object _userIdLock = new object();
         private bool _isRunning;
 
         public TcpServer(int port)
@@ -84,11 +87,26 @@ namespace SimpleTcpServer
                 {
                     var tcpClient = await _listener.AcceptTcpClientAsync();
                     var clientId = Guid.NewGuid().ToString();
-                    _clients[clientId] = tcpClient;
-                    _characters[clientId] = new Character(clientId);
+                    ushort userId;
                     
-                    Console.WriteLine($"Client connected: {clientId}");
-                    _ = Task.Run(() => HandleClientAsync(clientId, tcpClient));
+                    lock (_userIdLock)
+                    {
+                        userId = _nextUserId++;
+                        if (_nextUserId > 65535) _nextUserId = 1000; // 16비트 범위 초과시 다시 1000부터
+                    }
+                    
+                    _clients[clientId] = tcpClient;
+                    _clientUserIds[clientId] = userId;
+                    _characters[clientId] = new Character(clientId, userId);
+                    
+                    Console.WriteLine($"Client connected: {clientId} (UserId: {userId})");
+                    
+                    // 클라이언트에게 UserId 전송
+                    _ = Task.Run(async () =>
+                    {
+                        await SendUserIdAssignmentAsync(tcpClient, userId);
+                        await HandleClientAsync(clientId, tcpClient);
+                    });
                 }
                 catch (ObjectDisposedException)
                 {
@@ -114,13 +132,18 @@ namespace SimpleTcpServer
 
                     if (message != null && message.Type == MessageType.Move)
                     {
-                        if (_characters.TryGetValue(clientId, out var character))
+                        if (_characters.TryGetValue(clientId, out var character) && 
+                            _clientUserIds.TryGetValue(clientId, out var userId))
                         {
                             var startPos = new Vector2(message.StartX, message.StartY);
                             var targetPos = new Vector2(message.TargetX, message.TargetY);
                             character.StartMovement(startPos, targetPos);
 
-                            Console.WriteLine($"Character {clientId} moving from ({startPos.X}, {startPos.Y}) to ({targetPos.X}, {targetPos.Y})");
+                            Console.WriteLine($"Character {userId} moving from ({startPos.X}, {startPos.Y}) to ({targetPos.X}, {targetPos.Y})");
+
+                            // 메시지에 UserId 설정
+                            message.UserId = userId;
+                            message.CharacterId = clientId;
 
                             // 다른 클라이언트들에게 이동 정보 전달
                             await BroadcastMessageAsync(message, clientId);
@@ -136,8 +159,15 @@ namespace SimpleTcpServer
             {
                 _clients.TryRemove(clientId, out _);
                 _characters.TryRemove(clientId, out _);
+                if (_clientUserIds.TryRemove(clientId, out var userId))
+                {
+                    Console.WriteLine($"Client disconnected: {clientId} (UserId: {userId})");
+                }
+                else
+                {
+                    Console.WriteLine($"Client disconnected: {clientId}");
+                }
                 client.Close();
-                Console.WriteLine($"Client disconnected: {clientId}");
             }
         }
 
@@ -167,6 +197,27 @@ namespace SimpleTcpServer
             catch
             {
                 // 클라이언트 연결이 끊어진 경우 무시
+            }
+        }
+
+        private async Task SendUserIdAssignmentAsync(TcpClient client, ushort userId)
+        {
+            try
+            {
+                var message = new Message
+                {
+                    Type = MessageType.UserIdAssignment,
+                    UserId = userId
+                };
+                
+                var messageJson = Message.Serialize(message);
+                var data = Encoding.UTF8.GetBytes(messageJson);
+                
+                await client.GetStream().WriteAsync(data, 0, data.Length);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error sending UserId assignment: {ex.Message}");
             }
         }
 

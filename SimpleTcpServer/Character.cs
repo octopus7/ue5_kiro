@@ -5,15 +5,17 @@ namespace SimpleTcpServer
     public class Character
     {
         public string Id { get; set; }
+        public ushort UserId { get; set; } // 16비트 부호없는 정수형 식별자
         public Vector2 Position { get; set; }
         public Vector2 TargetPosition { get; set; }
         public bool IsMoving { get; set; }
         public float Speed { get; set; } = 100.0f; // units per second
         public DateTime LastUpdateTime { get; set; }
 
-        public Character(string id)
+        public Character(string id, ushort userId)
         {
             Id = id;
+            UserId = userId;
             Position = Vector2.Zero;
             TargetPosition = Vector2.Zero;
             IsMoving = false;

@@ -7,13 +7,15 @@ namespace SimpleTcpClient
     public enum MessageType
     {
         Move,
-        Position
+        Position,
+        UserIdAssignment
     }
 
     public class Message
     {
         public MessageType Type { get; set; }
         public string CharacterId { get; set; } = string.Empty;
+        public ushort UserId { get; set; } // 16비트 부호없는 정수형 식별자
         public float StartX { get; set; }
         public float StartY { get; set; }
         public float TargetX { get; set; }
