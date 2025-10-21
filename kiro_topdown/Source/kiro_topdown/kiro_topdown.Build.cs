@@ -8,9 +8,15 @@ public class kiro_topdown : ModuleRules
 	{
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
 	
-		PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine", "InputCore", "EnhancedInput", "NavigationSystem", "AIModule" });
+		PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine", "InputCore", "EnhancedInput", "NavigationSystem", "AIModule", "Sockets", "Networking" });
 
 		PrivateDependencyModuleNames.AddRange(new string[] {  });
+		
+		// Add include paths for generated protobuf files
+		PublicIncludePaths.Add(System.IO.Path.Combine(ModuleDirectory, "Generated"));
+		
+		// Disable specific warnings for protobuf compatibility
+		bEnableUndefinedIdentifierWarnings = false;
 
 		// Uncomment if you are using Slate UI
 		// PrivateDependencyModuleNames.AddRange(new string[] { "Slate", "SlateCore" });
