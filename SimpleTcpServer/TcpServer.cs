@@ -5,7 +5,7 @@ using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Numerics;
-using System.Text;
+
 namespace SimpleTcpServer
 {
     public class TcpServer
@@ -120,12 +120,12 @@ namespace SimpleTcpServer
             {
                 while (client.Connected && _isRunning)
                 {
-                    var messageJson = await ReadMessageAsync(stream);
-                    if (messageJson == null)
+                    var payload = await ReadMessageAsync(stream);
+                    if (payload == null)
                     {
                         break;
                     }
-                    var message = Message.Deserialize(messageJson);
+                    var message = Message.Deserialize(payload);
                     if (message == null)
                     {
                         Console.WriteLine($"Failed to deserialize message from {clientId}");
@@ -174,8 +174,7 @@ namespace SimpleTcpServer
 
         private async Task BroadcastMessageAsync(Message message, string senderId)
         {
-            var messageJson = Message.Serialize(message);
-            var payload = Encoding.UTF8.GetBytes(messageJson);
+            var payload = Message.Serialize(message);
             var packet = BuildPacket(payload);
             var tasks = new List<Task>();
             foreach (var kvp in _clients)
@@ -197,8 +196,7 @@ namespace SimpleTcpServer
                     Type = MessageType.UserIdAssignment,
                     UserId = userId
                 };
-                var messageJson = Message.Serialize(message);
-                var payload = Encoding.UTF8.GetBytes(messageJson);
+                var payload = Message.Serialize(message);
                 var packet = BuildPacket(payload);
                 await SendRawPacketAsync(client, packet);
             }
@@ -236,8 +234,7 @@ namespace SimpleTcpServer
                     Type = MessageType.AllUsersInfo,
                     AllUsers = allUsers
                 };
-                var messageJson = Message.Serialize(message);
-                var payload = Encoding.UTF8.GetBytes(messageJson);
+                var payload = Message.Serialize(message);
                 var packet = BuildPacket(payload);
                 await SendRawPacketAsync(client, packet);
             }
@@ -282,7 +279,7 @@ namespace SimpleTcpServer
             return true;
         }
 
-        private async Task<string?> ReadMessageAsync(NetworkStream stream)
+        private async Task<byte[]?> ReadMessageAsync(NetworkStream stream)
         {
             var lengthBuffer = new byte[sizeof(int)];
             if (!await ReadExactAsync(stream, lengthBuffer, lengthBuffer.Length))
@@ -299,7 +296,7 @@ namespace SimpleTcpServer
             {
                 return null;
             }
-            return Encoding.UTF8.GetString(payload);
+            return payload;
         }
 
         private void UpdateCharacters(object? state)

@@ -1,8 +1,8 @@
 ﻿using System.Buffers.Binary;
+using System.Collections.Generic;
 using System.IO;
 using System.Net.Sockets;
 using System.Text;
-using System.Text.Json;
 
 namespace SimpleTcpClient
 {
@@ -29,21 +29,134 @@ namespace SimpleTcpClient
         public bool IsMoving { get; set; }
         public List<UserInfo>? AllUsers { get; set; } // 모든 유저 정보
 
-        public static string Serialize(Message message)
+        public static byte[] Serialize(Message message)
         {
-            return JsonSerializer.Serialize(message);
+            using var stream = new MemoryStream();
+            using (var writer = new BinaryWriter(stream, Encoding.UTF8, leaveOpen: true))
+            {
+                writer.Write((byte)message.Type);
+                WriteString(writer, message.CharacterId);
+                writer.Write(message.UserId);
+                writer.Write(message.StartX);
+                writer.Write(message.StartY);
+                writer.Write(message.TargetX);
+                writer.Write(message.TargetY);
+                writer.Write(message.CurrentX);
+                writer.Write(message.CurrentY);
+                writer.Write(message.Speed);
+                writer.Write(message.IsMoving);
+
+                var allUsers = message.AllUsers;
+                if (allUsers == null)
+                {
+                    writer.Write(0);
+                }
+                else
+                {
+                    writer.Write(allUsers.Count);
+                    foreach (var user in allUsers)
+                    {
+                        writer.Write(user.UserId);
+                        WriteString(writer, user.CharacterId);
+                        writer.Write(user.CurrentX);
+                        writer.Write(user.CurrentY);
+                        writer.Write(user.TargetX);
+                        writer.Write(user.TargetY);
+                        writer.Write(user.Speed);
+                        writer.Write(user.IsMoving);
+                    }
+                }
+            }
+
+            return stream.ToArray();
         }
 
-        public static Message? Deserialize(string json)
+        public static Message? Deserialize(byte[] data)
         {
             try
             {
-                return JsonSerializer.Deserialize<Message>(json);
+                using var stream = new MemoryStream(data, writable: false);
+                using var reader = new BinaryReader(stream, Encoding.UTF8, leaveOpen: true);
+
+                var message = new Message
+                {
+                    Type = (MessageType)reader.ReadByte(),
+                    CharacterId = ReadString(reader),
+                    UserId = reader.ReadUInt16(),
+                    StartX = reader.ReadSingle(),
+                    StartY = reader.ReadSingle(),
+                    TargetX = reader.ReadSingle(),
+                    TargetY = reader.ReadSingle(),
+                    CurrentX = reader.ReadSingle(),
+                    CurrentY = reader.ReadSingle(),
+                    Speed = reader.ReadSingle(),
+                    IsMoving = reader.ReadBoolean()
+                };
+
+                var count = reader.ReadInt32();
+                if (count < 0)
+                {
+                    throw new InvalidDataException("Invalid AllUsers count");
+                }
+
+                if (count > 0)
+                {
+                    var users = new List<UserInfo>(count);
+                    for (var i = 0; i < count; i++)
+                    {
+                        var user = new UserInfo
+                        {
+                            UserId = reader.ReadUInt16(),
+                            CharacterId = ReadString(reader),
+                            CurrentX = reader.ReadSingle(),
+                            CurrentY = reader.ReadSingle(),
+                            TargetX = reader.ReadSingle(),
+                            TargetY = reader.ReadSingle(),
+                            Speed = reader.ReadSingle(),
+                            IsMoving = reader.ReadBoolean()
+                        };
+                        users.Add(user);
+                    }
+
+                    message.AllUsers = users;
+                }
+
+                if (stream.Position != stream.Length)
+                {
+                    throw new InvalidDataException("Trailing data detected");
+                }
+
+                return message;
             }
             catch
             {
                 return null;
             }
+        }
+
+        private static void WriteString(BinaryWriter writer, string? value)
+        {
+            var text = value ?? string.Empty;
+            var bytes = Encoding.UTF8.GetBytes(text);
+            writer.Write(bytes.Length);
+            writer.Write(bytes);
+        }
+
+        private static string ReadString(BinaryReader reader)
+        {
+            var length = reader.ReadInt32();
+            if (length < 0)
+            {
+                throw new InvalidDataException("Negative string length");
+            }
+
+            var bytes = reader.ReadBytes(length);
+            if (bytes.Length != length)
+            {
+                throw new EndOfStreamException("Unexpected end of stream while reading string");
+            }
+
+            return bytes.Length == 0 ? string.Empty : Encoding.UTF8.GetString(bytes);
         }
     }
 
@@ -112,13 +225,12 @@ namespace SimpleTcpClient
                 TargetY = targetY
             };
 
-            var json = Message.Serialize(message);
-            var data = Encoding.UTF8.GetBytes(json);
+            var payload = Message.Serialize(message);
 
             try
             {
-                Log($"Sending move command Start=({startX:F1},{startY:F1}) Target=({targetX:F1},{targetY:F1}) len={data.Length}");
-                await SendPacketAsync(data);
+                Log($"Sending move command Start=({startX:F1},{startY:F1}) Target=({targetX:F1},{targetY:F1}) len={payload.Length} bytes");
+                await SendPacketAsync(payload);
             }
             catch (Exception ex)
             {
@@ -156,7 +268,7 @@ namespace SimpleTcpClient
             return true;
         }
 
-        private async Task<string?> ReadMessageAsync(NetworkStream stream)
+        private async Task<byte[]?> ReadMessageAsync(NetworkStream stream)
         {
             var lengthBuffer = new byte[sizeof(int)];
             if (!await ReadExactAsync(stream, lengthBuffer, lengthBuffer.Length))
@@ -176,7 +288,7 @@ namespace SimpleTcpClient
                 return null;
             }
 
-            return Encoding.UTF8.GetString(payload);
+            return payload;
         }
 
         private async Task ReceiveMessagesAsync()
@@ -191,15 +303,15 @@ namespace SimpleTcpClient
                         break;
                     }
 
-                    var json = await ReadMessageAsync(stream);
-                    if (json == null)
+                    var payload = await ReadMessageAsync(stream);
+                    if (payload == null)
                     {
                         Log("Stream closed while waiting for message");
                         break;
                     }
 
-                    Log($"Received message len={json.Length}: {json}");
-                    var message = Message.Deserialize(json);
+                    Log($"Received message len={payload.Length} bytes");
+                    var message = Message.Deserialize(payload);
 
                     if (message != null)
                     {
